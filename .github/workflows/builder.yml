@@ -50,10 +50,10 @@ jobs:
               tag_name: process.env.next_tag,
               name: `pgModeler build ${{ env.timestamp }}`,
               body: `
-            ## Automated pgModeler build containing both Linux and Windows binaries.
+            ## Automated pgModeler build containing MacOS, Linux and Windows binaries.
 
             ### Downloading
-            Download any of the pgmodeler[windows|linux]-binaries.[zip|tar.gz] files, extract them, and run the pgmodeler executable file.
+            Download any of the pgmodeler [macos|windows|linux] binary packaged [zip|tar.gz] files, extract them, and run the pgmodeler executable file.
 
             ### Extra files
             Both Source code[zip|tar.gz] files have the source code of pgmodeler-builder. This repository is empty and only have the GitHub action to create the binary files.
@@ -400,6 +400,186 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  macos-build:
+    runs-on: macos-latest
+    needs: create-release
+
+    strategy:
+      max-parallel: 3
+      fail-fast: true
+      matrix:
+        branch: [ v1.1.5, v1.2.0-alpha1, develop ]
+        qt: ['6.6.1']
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        repository: pgmodeler/pgmodeler  # Specifies the repository to checkout
+        path: 'pgmodeler'
+        ref: ${{ matrix.branch }}  # Checks out the specific branch from the matrix
+
+    - name: Installing Qt framework
+      uses: jurplel/install-qt-action@v4
+      with:
+        version: ${{ matrix.qt }}
+
+    - name: Installing Postgres and OpenSSL
+      run: |
+        brew install --quiet postgresql@15
+        brew unlink --quiet postgresql@15
+        brew link --quiet --overwrite postgresql@15
+        brew reinstall openssl@3
+        brew --prefix openssl@3
+        brew install --quiet libxml2 libpq
+        ls -ltah $(brew --prefix openssl@3)
+
+    - name: Show current version of Xcode
+      run: xcodebuild -version
+
+    - name: Running qmake
+      run: |
+        echo 'export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"' >> /Users/runner/.bash_profile
+        export LDFLAGS="-L/opt/homebrew/opt/postgresql@15/lib"
+        export CPPFLAGS="-I/opt/homebrew/opt/postgresql@15/include"
+        export INSTALLATION_ROOT="/Applications/pgModeler.app/"
+
+        cd $GITHUB_WORKSPACE/pgmodeler
+        ls -ltah
+        pwd
+        # git clone https://github.com/pgmodeler/plugins
+        #    BINDIR=$GITHUB_WORKSPACE/pgmodeler/build/bin \
+        #    PRIVATEBINDIR=$GITHUB_WORKSPACE/pgmodeler/build/bin \
+        #    PRIVATELIBDIR=$GITHUB_WORKSPACE/pgmodeler/build/lib \
+        #    CONFDIR=$GITHUB_WORKSPACE/pgmodeler/build/bin \
+
+        qmake pgmodeler.pro -r \
+            PREFIX=$INSTALLATION_ROOT/Contents \
+            PGSQL_INC="/opt/homebrew/opt/postgresql@15/include" \
+            PGSQL_LIB="/opt/homebrew/opt/postgresql@15/lib/libpq.dylib" \
+            CONFIG+=debug \
+            CONFIG+=release # CONFIG+=static
+
+    - name: Building pgModeler
+      run: |
+        cd $GITHUB_WORKSPACE/pgmodeler
+        ls -ltah
+        pwd
+        make -j6
+        make install
+
+    - name: Dependencies
+      run: |
+        export PGSQL_ROOT="/opt/homebrew/opt/postgresql@15/"
+        export BUILD_ROOT=$GITHUB_WORKSPACE/pgmodeler/build/
+        export QT_ROOT="/Users/runner/work/pgmodeler-builder/Qt/6.6.1/macos/"
+        export INSTALLATION_ROOT="/Applications/pgModeler.app/"
+        #export INSTALLATION_ROOT=$GITHUB_WORKSPACE/pgmodeler/build/bin/
+        export OPENSSL_ROOT="/opt/homebrew/opt/openssl@3/"
+
+        mkdir -p $INSTALLATION_ROOT/PlugIns/tls
+        mkdir -p $INSTALLATION_ROOT/Contents/Frameworks
+
+        ls -ltah $OPENSSL_ROOT/lib/
+        ls -ltah $PGSQL_ROOT/lib/
+
+        cp $PGSQL_ROOT/lib/libpq.5.dylib $INSTALLATION_ROOT/Contents/Frameworks/
+        cp $OPENSSL_ROOT/lib/libssl.* $INSTALLATION_ROOT/Contents/Frameworks/
+        cp $OPENSSL_ROOT/lib/libcrypto.* $INSTALLATION_ROOT/Contents/Frameworks/
+
+        install_name_tool -change "@loader_path/../lib/libcrypto.3.dylib" "@loader_path/../Frameworks/libcrypto.3.dylib" $INSTALLATION_ROOT/Contents/Frameworks/libssl.3.dylib
+        install_name_tool -change "@loader_path/../lib/libcrypto.3.dylib" "@loader_path/../Frameworks/libcrypto.3.dylib" $INSTALLATION_ROOT/Contents/Frameworks/libpq.5.dylib
+        install_name_tool -change "@loader_path/../lib/libssl.3.dylib" "@loader_path/../Frameworks/libssl.3.dylib" $INSTALLATION_ROOT/Contents/Frameworks/libpq.5.dylib
+        # install_name_tool -change libpq.5.dylib "@loader_path/../Frameworks/libpq.5.dylib" $INSTALLATION_ROOT/Contents/Frameworks/libpgconnector.dylib
+
+        #cp -r $QT_ROOT/plugins/platforms/tls/* $INSTALLATION_ROOT/PlugIns/tls/
+
+    - name: Index files DB
+      run: |
+        sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.locate.plist
+
+    - name: Run macdeploy
+      run: |
+        # locate pgmodeler
+        export INSTALLATION_ROOT="/Applications/pgModeler.app/"
+        # INSTALLATION_ROOT=$GITHUB_WORKSPACE/pgmodeler/build/bin/
+        BUILD_ROOT=$GITHUB_WORKSPACE/pgmodeler/build/
+        QT_ROOT=/Users/runner/work/pgmodeler-builder/Qt/6.6.1/macos/
+        cd $GITHUB_WORKSPACE/pgmodeler
+        ls -ltah
+        ls -ltah apps/
+        ls -ltah $INSTALLATION_ROOT/
+        ls -ltah $INSTALLATION_ROOT/Contents
+        ls -ltah $INSTALLATION_ROOT/PlugIns
+        ls -ltah /Applications/
+        pwd
+
+        sudo $QT_ROOT/bin/macdeployqt $INSTALLATION_ROOT \
+            $INSTALLATION_ROOT/pgmodeler-ch \
+            $INSTALLATION_ROOT/pgmodeler-cli
+
+    - name: Create .dmg from .app
+      run: |
+        BUILD_ROOT=$GITHUB_WORKSPACE/pgmodeler/build/
+        sudo hdiutil create -volname "pgModeler" \
+                       -srcfolder "/Applications/pgModeler.app" \
+                       -ov -format UDZO "/tmp/pgModeler.dmg" -debug
+
+    - name: Sanitize version string
+      run: |
+        # Remove leading 'v' if present
+        VER=${{ matrix.branch }}
+        SANITIZED_VERSION=${VER#v}
+        echo "SANITIZED_VERSION=$SANITIZED_VERSION" >> $GITHUB_ENV
+
+    - name: Upload the App as an artifact
+      uses: actions/upload-artifact@v4
+      if: github.event_name == 'push' || github.event_name == 'pull_request'
+      with:
+        name: pgModeler-${{ env.SANITIZED_VERSION }}-arm.dmg
+        path: /tmp/pgModeler.dmg
+        # path: ${{ env.GITHUB_WORKSPACE }}/pgmodeler/build/pgModeler.dmg
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload the App file in a release build
+      uses: actions/upload-release-asset@v1
+      if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: /tmp/pgModeler.dmg
+        # asset_path: ${{ env.GITHUB_WORKSPACE }}/pgmodeler/build/pgModeler.dmg
+        asset_name: pgModeler-${{ env.SANITIZED_VERSION }}-arm.dmg
+        asset_content_type: application/gzip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload the build files as an artifact
+      uses: actions/upload-artifact@v4
+      if: github.event_name == 'push' || github.event_name == 'pull_request'
+      with:
+        name: pgmodeler-macos-build-${{ matrix.branch }}.zip
+        path: ${{ github.workspace }}/pgmodeler
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Zip the build files
+      if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      run: |
+        cd ${{ github.workspace }}
+        zip -r pgmodeler-macos-build-${{ matrix.branch }}.zip pgmodeler/*
+
+    - name: Upload the build zip file in a release build
+      uses: actions/upload-release-asset@v1
+      if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ${{ github.workspace }}/pgmodeler-macos-build-${{ matrix.branch }}.zip
+        asset_name: pgmodeler-macos-build-${{ matrix.branch }}.zip
+        asset_content_type: application/gzip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   cleanup-release:
     runs-on: ubuntu-latest
     if: always()
@@ -407,6 +587,7 @@ jobs:
       - create-release
       - linux-build
       - windows-build
+      - macos-build
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -426,6 +607,12 @@ jobs:
             });
 
             const assets = assetsResponse.data;
+
+            console.log('Assets in the release:');
+            assets.forEach(asset => {
+              console.log(`- ${asset.name}`);
+            });
+
             const defaultAssets = assets.filter(asset =>
               asset.name === 'Source code (zip)' || asset.name === 'Source code (tar.gz)'
             );

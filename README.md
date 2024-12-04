@@ -31,23 +31,26 @@ improvements are welcomed with PRs.
 In the [releases section](https://github.com/ccamacho/pgmodeler-builder/releases)
 there will be a monthly build including:
 
-- A build tarball for the Windows and Linux compiled sources.
-- An AppImage for Linux.
-- A setup file for Windows.
+- A build tarball for the MacOS, Windows and Linux compiled sources.
+- An .AppImage for Linux.
+- A .dmg file for ARM MacOS.
+- A .exe file for Windows.
 
 Each release includes the tags and releases included in the
 [Windows](https://github.com/ccamacho/pgmodeler-builder/blob/main/.github/workflows/builder.yml#L79)
 and
 [Linux](https://github.com/ccamacho/pgmodeler-builder/blob/main/.github/workflows/builder.yml#L227)
+and
+[MacOS](https://github.com/ccamacho/pgmodeler-builder/blob/main/.github/workflows/builder.yml#L411)
 jobs at the time it was executed. Like:
 
 ```
 matrix:
-  branch: [ v1.1.4, 1.1.5, 1.2.0-alpha1 ]
+  branch: [ v1.1.5, v1.2.0-alpha1, develop ]
 ```
 
 For adding new versions or releases include the new ones in the list to be built.
-For any new release make sure to make the update for both windows and linux jobs.
+For any new release make sure to make the update for MacOS, Windows and Linux jobs.
 
 ## Usage hints
 
