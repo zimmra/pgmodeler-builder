@@ -76,7 +76,7 @@ jobs:
       fail-fast: true
       matrix:
         # We can put in the branch both branches and release tags
-        branch: [ v1.1.4, 1.1.5, 1.2.0-alpha1 ]
+        branch: [ v1.1.5, v1.2.0-alpha1, develop ]
         qt: ['6.x']
 
     defaults:
@@ -224,7 +224,7 @@ jobs:
       max-parallel: 3
       fail-fast: true
       matrix:
-        branch: [ v1.1.4, 1.1.5, 1.2.0-alpha1 ]
+        branch: [ v1.1.5, v1.2.0-alpha1, develop ]
         qt: ['6.6.1']
 
     steps:
@@ -253,7 +253,7 @@ jobs:
         cd $GITHUB_WORKSPACE/pgmodeler
         ls -ltah
         pwd
-        git clone https://github.com/pgmodeler/plugins
+        # git clone https://github.com/pgmodeler/plugins
         qmake pgmodeler.pro \
             -r PREFIX=$GITHUB_WORKSPACE/pgmodeler/build \
                BINDIR=$GITHUB_WORKSPACE/pgmodeler/build/bin \
